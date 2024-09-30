@@ -1,164 +1,122 @@
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
-import 'dart:typed_data';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:intl/intl.dart';
 
-import 'package:vrchat_pictures_web/FirebaseStorage.dart'; // Web用のバイトデータ
-
-class MultiFilePickerExample extends StatefulWidget {
+class UploadImagePage extends StatefulWidget {
   @override
-  _MultiFilePickerExampleState createState() => _MultiFilePickerExampleState();
+  _UploadImagePageState createState() => _UploadImagePageState();
 }
 
-class _MultiFilePickerExampleState extends State<MultiFilePickerExample> {
-  List<PlatformFile> selectedFiles = [];
-  bool isUploading = false;
-  String? uploadStatus;
-  final FirebaseStorageService _firebaseStorageService =
-      FirebaseStorageService(); // Firebase Storageサービスのインスタンス
-  final TextEditingController _pathController =
-      TextEditingController(); // パスを入力するためのコントローラー
+class _UploadImagePageState extends State<UploadImagePage> {
+  List<html.File>? _selectedFiles = [];
+  List<String>? _selectedFilesNames = [];
+  bool _isUploading = false; // アップロード中のフラグ
+  int _uploadedCount = 0; // アップロード済みのファイル数
 
-  // 複数ファイルを選択する関数
-  Future<void> pickMultipleFiles() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      allowMultiple: true,
-      type: FileType.image, // 画像ファイルのみ選択
-      withData: true, // Webでバイトデータを取得する
-    );
+  /// ファイル選択処理
+  Future<void> _pickImages() async {
+    html.FileUploadInputElement uploadInput = html.FileUploadInputElement();
+    uploadInput.accept = 'image/*';
+    uploadInput.multiple = true;
+    uploadInput.click();
 
-    if (result != null) {
-      setState(() {
-        selectedFiles = result.files;
-      });
-    } else {
-      print('No files selected');
-    }
+    uploadInput.onChange.listen((e) {
+      final files = uploadInput.files;
+      if (files!.isNotEmpty) {
+        setState(() {
+          _selectedFiles = files;
+          _selectedFilesNames = files.map((file) => file.name).toList();
+        });
+      }
+    });
   }
 
-  // 選択した画像をFirebase Storageにアップロード
-  Future<void> uploadFilesToFirebase() async {
-    if (selectedFiles.isEmpty) {
-      setState(() {
-        uploadStatus = "No files selected for upload";
-      });
-      return;
-    }
-
-    String uploadPath = _pathController.text.isNotEmpty
-        ? _pathController.text
-        : 'uploads'; // パスが指定されていない場合のデフォルト
+  /// 選択した画像をFirebase Storageにアップロード
+  Future<void> _uploadImages() async {
+    if (_selectedFiles == null || _selectedFiles!.isEmpty) return;
 
     setState(() {
-      isUploading = true;
-      uploadStatus = "Uploading...";
+      _isUploading = true; // アップロード開始
+      _uploadedCount = 0; // アップロード済みファイルのリセット
     });
 
-    try {
-      for (PlatformFile file in selectedFiles) {
-        if (file.bytes != null) {
-          // Firebase Storageにファイルをアップロード
-          await _firebaseStorageService.uploadFile(
-              file.bytes!, '$uploadPath/${file.name}'); // パスを指定してアップロード
+    // 現在の日付を取得してフォルダ名に使う
+    String currentDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
+    for (var file in _selectedFiles!) {
+      try {
+        String fileName = file.name;
+        final storageRef = FirebaseStorage.instance
+            .ref()
+            .child('uploads/$currentDate/$fileName');
+
+        // アップロードタスク
+        final uploadTask = storageRef.putBlob(file);
+
+        // アップロードが完了するまで待機
+        await uploadTask.whenComplete(() {
           setState(() {
-            uploadStatus = "Uploaded: ${file.name}";
+            _uploadedCount++; // アップロード済みファイル数の更新
           });
-        }
-      }
-    } catch (e) {
-      setState(() {
-        uploadStatus = "Upload failed: $e";
-      });
-    } finally {
-      setState(() {
-        isUploading = false;
-      });
-    }
-  }
+        });
 
-  // 選択されたファイルをクリア
-  void clearSelectedFiles() {
+        String downloadURL = await storageRef.getDownloadURL();
+        print("File uploaded successfully! URL: $downloadURL");
+      } catch (e) {
+        print("Error uploading file: $e");
+      }
+    }
+
     setState(() {
-      selectedFiles.clear();
-      _pathController.clear(); // テキストフィールドをクリア
+      _isUploading = false; // アップロード完了
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Multi Image Picker & Firebase Storage'),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            TextField(
-              controller: _pathController,
-              decoration: InputDecoration(
-                labelText: 'Upload Path',
-                hintText: 'e.g. uploads/images',
-              ),
-            ),
-            SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton(
-                  onPressed: pickMultipleFiles,
-                  child: Text('Pick Images'),
-                ),
-                SizedBox(width: 20),
-                ElevatedButton(
-                  onPressed: isUploading ? null : uploadFilesToFirebase,
-                  child: isUploading
-                      ? Text('Uploading...')
-                      : Text('Upload Images'),
-                ),
-                SizedBox(width: 20),
-                ElevatedButton(
-                  onPressed: clearSelectedFiles,
-                  child: Text('Clear Images'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
+      appBar: AppBar(title: Text("Upload Multiple Images")),
+      body: Column(
+        children: [
+          // ファイル選択ボタン
+          ElevatedButton(
+            onPressed: _pickImages,
+            child: Text("Pick Images"),
+          ),
+
+          // 選択された画像名の表示
+          _selectedFilesNames != null && _selectedFilesNames!.isNotEmpty
+              ? Expanded(
+                  child: ListView.builder(
+                    itemCount: _selectedFilesNames!.length,
+                    itemBuilder: (context, index) {
+                      return ListTile(
+                        title: Text(_selectedFilesNames![index]),
+                      );
+                    },
                   ),
-                ),
+                )
+              : Text("No images selected"),
+
+          // アップロードボタン（アップロード中は無効化）
+          ElevatedButton(
+            onPressed: _isUploading ? null : _uploadImages,
+            child: Text("Upload Images"),
+          ),
+
+          // アップロード中の画面（ローディングインジケーターと進捗）
+          if (_isUploading)
+            Column(
+              children: [
+                SizedBox(height: 20),
+                CircularProgressIndicator(), // ローディングインジケーター
+                SizedBox(height: 20),
+                Text(
+                    "Uploading ${_uploadedCount}/${_selectedFiles!.length} files..."), // アップロード進捗表示
               ],
             ),
-            SizedBox(height: 20),
-            if (uploadStatus != null) Text(uploadStatus!),
-            Expanded(
-              child: selectedFiles.isNotEmpty
-                  ? GridView.builder(
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 4.0,
-                        mainAxisSpacing: 4.0,
-                      ),
-                      itemCount: selectedFiles.length,
-                      itemBuilder: (context, index) {
-                        final file = selectedFiles[index];
-
-                        if (file.bytes != null) {
-                          return Image.memory(
-                            file.bytes!,
-                            fit: BoxFit.cover,
-                          );
-                        } else {
-                          return Center(
-                            child: Text('Cannot display file'),
-                          );
-                        }
-                      },
-                    )
-                  : Center(
-                      child: Text('No images selected'),
-                    ),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }

@@ -1,25 +1,20 @@
-import 'package:firebase_storage/firebase_storage.dart'; // Firebase Storage
+import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:typed_data'; // Web用のバイトデータ
 
 class FirebaseStorageService {
-  final FirebaseStorage _storage = FirebaseStorage.instance;
+  final FirebaseStorage _storage =
+      FirebaseStorage.instanceFor(bucket: 'gs://vrchat-pictures.appspot.com');
 
-  // Firebase Storageに画像をアップロードする関数
+  // Firebase Storageにファイルをアップロード
   Future<void> uploadFile(Uint8List fileBytes, String fileName) async {
     try {
-      // アップロード先のリファレンスを作成
-      Reference ref = _storage.ref().child('uploads/$fileName');
-
-      // Firebase Storageにファイルをアップロード
-      UploadTask uploadTask = ref.putData(fileBytes);
-
-      // アップロード完了を待つ
-      await uploadTask.whenComplete(() {
-        print('Uploaded: $fileName');
-      });
+      // 固定バケットパスにアップロード
+      Reference ref = _storage.ref().child(fileName);
+      await ref.putData(fileBytes);
+      print('File uploaded: $fileName');
     } catch (e) {
-      print('Upload failed: $e');
-      throw e; // 呼び出し元でエラー処理ができるように投げる
+      print('Error during file upload: $e');
+      throw e;
     }
   }
 }
